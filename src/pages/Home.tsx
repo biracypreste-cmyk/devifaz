@@ -120,7 +120,7 @@ export function Home({ onPlay }: HomeProps) {
                     <div key={genreName}>
                         <h2 className="text-2xl font-bold text-white mb-6">{genreName}</h2>
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px]">
-                            {items.map(item => (
+                            {items.slice(0, 14).map(item => (
                                 <div key={`${genreName}-${item.id}`} className="relative z-10">
                                     <MovieCard
                                         movie={toMovie(item)}
