@@ -352,16 +352,10 @@ let cachedSeries: Content[] | null = null;
 let cacheTimestamp = 0;
 const CACHE_DURATION = 30 * 60 * 1000; // 30min
 
-// Cache de enriquecimento TMDB (por título normalizado)
+// Cache de enriquecimento TMDB (por título normalizado) - APENAS GÊNEROS
 const tmdbEnrichmentCache: Map<string, {
   genres?: string[];
   genre_ids?: number[];
-  backdrop_path?: string;
-  logoUrl?: string;
-  overview?: string;
-  vote_average?: number;
-  release_date?: string;
-  first_air_date?: string;
 }> = new Map();
 
 /**
@@ -377,7 +371,8 @@ function normalizeTitle(title: string): string {
 }
 
 /**
- * Busca metadados do TMDB por título (com cache)
+ * Busca APENAS gêneros do TMDB por título (com cache)
+ * REGRA: Apenas gêneros são buscados do TMDB, todo o resto vem do real_content.json
  */
 async function enrichFromTMDB(item: Content): Promise<Content> {
   const normalizedTitle = normalizeTitle(item.title || item.name);
@@ -389,12 +384,6 @@ async function enrichFromTMDB(item: Content): Promise<Content> {
       ...item,
       genres: cached.genres,
       genre_ids: cached.genre_ids,
-      backdrop_path: cached.backdrop_path || item.backdrop_path,
-      logoUrl: cached.logoUrl,
-      overview: cached.overview || item.overview,
-      vote_average: cached.vote_average || item.vote_average,
-      release_date: cached.release_date || item.release_date,
-      first_air_date: cached.first_air_date || item.first_air_date,
     };
   }
 
@@ -417,74 +406,27 @@ async function enrichFromTMDB(item: Content): Promise<Content> {
     const data = await response.json();
     
     if (data.results && data.results.length > 0) {
+      // Pegar genre_ids do resultado da busca (já vem na resposta)
       const result = data.results[0];
+      const genre_ids: number[] = result.genre_ids || [];
       
-      // Buscar detalhes para obter gêneros completos e logo
-      const detailsUrl = `${TMDB_BASE}/${searchType}/${result.id}?language=pt-BR&append_to_response=images`;
-      const detailsResponse = await fetch(detailsUrl, {
-        headers: {
-          'Authorization': `Bearer ${TMDB_BEARER_TOKEN}`,
-          'accept': 'application/json',
-        },
-      });
+      // Converter genre_ids para nomes usando GENRE_MAP
+      const genres: string[] = genre_ids
+        .map((id: number) => GENRE_MAP[id])
+        .filter((name: string | undefined): name is string => !!name);
 
-      let genres: string[] = [];
-      let genre_ids: number[] = [];
-      let logoUrl: string | undefined;
-      let backdrop_path: string | undefined;
+      // Cachear APENAS gêneros
+      tmdbEnrichmentCache.set(normalizedTitle, { genres, genre_ids });
 
-      if (detailsResponse.ok) {
-        const details = await detailsResponse.json();
-        
-        // Extrair gêneros
-        if (details.genres) {
-          genres = details.genres.map((g: any) => g.name);
-          genre_ids = details.genres.map((g: any) => g.id);
-        }
-        
-        // Extrair logo
-        if (details.images?.logos && details.images.logos.length > 0) {
-          const ptLogo = details.images.logos.find((l: any) => l.iso_639_1 === 'pt');
-          const enLogo = details.images.logos.find((l: any) => l.iso_639_1 === 'en');
-          const logoData = ptLogo || enLogo || details.images.logos[0];
-          logoUrl = `https://image.tmdb.org/t/p/w500${logoData.file_path}`;
-        }
-        
-        // Extrair backdrop HD
-        if (details.backdrop_path) {
-          backdrop_path = `https://image.tmdb.org/t/p/original${details.backdrop_path}`;
-        }
-      }
-
-      const enrichment = {
-        genres,
-        genre_ids,
-        backdrop_path,
-        logoUrl,
-        overview: result.overview,
-        vote_average: result.vote_average,
-        release_date: result.release_date,
-        first_air_date: result.first_air_date,
-      };
-
-      // Cachear resultado
-      tmdbEnrichmentCache.set(normalizedTitle, enrichment);
-
+      // Retornar item original com APENAS gêneros adicionados
       return {
         ...item,
-        genres: enrichment.genres,
-        genre_ids: enrichment.genre_ids,
-        backdrop_path: enrichment.backdrop_path || item.backdrop_path,
-        logoUrl: enrichment.logoUrl,
-        overview: enrichment.overview || item.overview,
-        vote_average: enrichment.vote_average || item.vote_average,
-        release_date: enrichment.release_date || item.release_date,
-        first_air_date: enrichment.first_air_date || item.first_air_date,
-        // MANTER poster_path local!
+        genres,
+        genre_ids,
       };
     }
   } catch (error) {
-    console.warn(`Erro ao enriquecer "${item.title}":`, error);
+    console.warn(`Erro ao buscar gênero de "${item.title}":`, error);
   }
 
   return item;
