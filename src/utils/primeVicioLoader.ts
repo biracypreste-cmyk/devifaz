@@ -352,6 +352,174 @@ let cachedSeries: Content[] | null = null;
 let cacheTimestamp = 0;
 const CACHE_DURATION = 30 * 60 * 1000; // 30min
 
+// Cache de enriquecimento TMDB (por título normalizado)
+const tmdbEnrichmentCache: Map<string, {
+  genres?: string[];
+  genre_ids?: number[];
+  backdrop_path?: string;
+  logoUrl?: string;
+  overview?: string;
+  vote_average?: number;
+  release_date?: string;
+  first_air_date?: string;
+}> = new Map();
+
+/**
+ * Normaliza título para busca/cache
+ */
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+    .replace(/[^a-z0-9]/g, '') // Remove caracteres especiais
+    .trim();
+}
+
+/**
+ * Busca metadados do TMDB por título (com cache)
+ */
+async function enrichFromTMDB(item: Content): Promise<Content> {
+  const normalizedTitle = normalizeTitle(item.title || item.name);
+  
+  // Verificar cache primeiro
+  if (tmdbEnrichmentCache.has(normalizedTitle)) {
+    const cached = tmdbEnrichmentCache.get(normalizedTitle)!;
+    return {
+      ...item,
+      genres: cached.genres,
+      genre_ids: cached.genre_ids,
+      backdrop_path: cached.backdrop_path || item.backdrop_path,
+      logoUrl: cached.logoUrl,
+      overview: cached.overview || item.overview,
+      vote_average: cached.vote_average || item.vote_average,
+      release_date: cached.release_date || item.release_date,
+      first_air_date: cached.first_air_date || item.first_air_date,
+    };
+  }
+
+  try {
+    // Buscar no TMDB por título
+    const searchType = item.type === 'tv' ? 'tv' : 'movie';
+    const searchUrl = `${TMDB_BASE}/search/${searchType}?query=${encodeURIComponent(item.title || item.name)}&language=pt-BR`;
+    
+    const response = await fetch(searchUrl, {
+      headers: {
+        'Authorization': `Bearer ${TMDB_BEARER_TOKEN}`,
+        'accept': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      return item;
+    }
+
+    const data = await response.json();
+    
+    if (data.results && data.results.length > 0) {
+      const result = data.results[0];
+      
+      // Buscar detalhes para obter gêneros completos e logo
+      const detailsUrl = `${TMDB_BASE}/${searchType}/${result.id}?language=pt-BR&append_to_response=images`;
+      const detailsResponse = await fetch(detailsUrl, {
+        headers: {
+          'Authorization': `Bearer ${TMDB_BEARER_TOKEN}`,
+          'accept': 'application/json',
+        },
+      });
+
+      let genres: string[] = [];
+      let genre_ids: number[] = [];
+      let logoUrl: string | undefined;
+      let backdrop_path: string | undefined;
+
+      if (detailsResponse.ok) {
+        const details = await detailsResponse.json();
+        
+        // Extrair gêneros
+        if (details.genres) {
+          genres = details.genres.map((g: any) => g.name);
+          genre_ids = details.genres.map((g: any) => g.id);
+        }
+        
+        // Extrair logo
+        if (details.images?.logos && details.images.logos.length > 0) {
+          const ptLogo = details.images.logos.find((l: any) => l.iso_639_1 === 'pt');
+          const enLogo = details.images.logos.find((l: any) => l.iso_639_1 === 'en');
+          const logoData = ptLogo || enLogo || details.images.logos[0];
+          logoUrl = `https://image.tmdb.org/t/p/w500${logoData.file_path}`;
+        }
+        
+        // Extrair backdrop HD
+        if (details.backdrop_path) {
+          backdrop_path = `https://image.tmdb.org/t/p/original${details.backdrop_path}`;
+        }
+      }
+
+      const enrichment = {
+        genres,
+        genre_ids,
+        backdrop_path,
+        logoUrl,
+        overview: result.overview,
+        vote_average: result.vote_average,
+        release_date: result.release_date,
+        first_air_date: result.first_air_date,
+      };
+
+      // Cachear resultado
+      tmdbEnrichmentCache.set(normalizedTitle, enrichment);
+
+      return {
+        ...item,
+        genres: enrichment.genres,
+        genre_ids: enrichment.genre_ids,
+        backdrop_path: enrichment.backdrop_path || item.backdrop_path,
+        logoUrl: enrichment.logoUrl,
+        overview: enrichment.overview || item.overview,
+        vote_average: enrichment.vote_average || item.vote_average,
+        release_date: enrichment.release_date || item.release_date,
+        first_air_date: enrichment.first_air_date || item.first_air_date,
+        // MANTER poster_path local!
+      };
+    }
+  } catch (error) {
+    console.warn(`Erro ao enriquecer "${item.title}":`, error);
+  }
+
+  return item;
+}
+
+/**
+ * Enriquece lista de conteúdo com dados do TMDB (em lotes para não sobrecarregar API)
+ */
+async function enrichContentBatch(content: Content[]): Promise<Content[]> {
+  const BATCH_SIZE = 5;
+  const DELAY_MS = 300;
+  const enriched: Content[] = [];
+
+  console.log(`🔄 Enriquecendo ${content.length} itens com dados do TMDB...`);
+
+  for (let i = 0; i < content.length; i += BATCH_SIZE) {
+    const batch = content.slice(i, i + BATCH_SIZE);
+    const results = await Promise.all(batch.map(item => enrichFromTMDB(item)));
+    enriched.push(...results);
+    
+    // Delay entre lotes para não sobrecarregar API
+    if (i + BATCH_SIZE < content.length) {
+      await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+    }
+    
+    // Log de progresso a cada 50 itens
+    if ((i + BATCH_SIZE) % 50 === 0 || i + BATCH_SIZE >= content.length) {
+      console.log(`   Progresso: ${Math.min(i + BATCH_SIZE, content.length)}/${content.length} itens`);
+    }
+  }
+
+  console.log(`✅ Enriquecimento completo! ${tmdbEnrichmentCache.size} itens no cache`);
+  return enriched;
+}
+
 /**
  * Gerar URL de embed para player
  */
@@ -678,9 +846,9 @@ async function loadRealContent(): Promise<Content[]> {
 /**
  * FUNÇÃO PRINCIPAL - Carregar TUDO
  * 
- * ATUALIZADO: Carregamento PROGRESSIVO
- * 1. Primeiro carrega conteúdo LOCAL (imagens da pasta) - RÁPIDO
- * 2. Depois carrega conteúdo TMDB - PROGRESSIVO
+ * REGRA: Usa APENAS real_content.json como fonte de dados
+ * - Imagens locais de /images/posters/
+ * - Enriquecimento com TMDB (gêneros, backdrop, logo) com cache
  */
 export async function loadAllContent(): Promise<{
   movies: Content[];
@@ -693,28 +861,19 @@ export async function loadAllContent(): Promise<{
   }
 
   console.log('🎬 ═══════════════════════════════════════════════════');
-  console.log('🎬 CARREGAMENTO PROGRESSIVO');
-  console.log('🎬 1. LOCAL (imagens da pasta) - PRIMEIRO');
-  console.log('🎬 2. TMDB (imagens da API) - DEPOIS');
+  console.log('🎬 CARREGANDO CONTEÚDO REAL');
+  console.log('🎬 Fonte: real_content.json (imagens locais)');
+  console.log('🎬 Enriquecimento: TMDB (gêneros, backdrop, logo)');
   console.log('🎬 ═══════════════════════════════════════════════════');
 
   try {
-    // PASSO 1: Carregar conteúdo LOCAL primeiro (RÁPIDO)
-    console.log('\n📂 PASSO 1: Carregando conteúdo LOCAL...');
-    const localContent = await loadLocalContent();
+    // PASSO 1: Carregar conteúdo REAL (única fonte de dados)
+    console.log('\n📂 PASSO 1: Carregando real_content.json...');
+    const realContent = await loadRealContent();
     
-    // PASSO 2: Carregar conteúdo TMDB (pode demorar mais)
-    console.log('\n🌐 PASSO 2: Carregando conteúdo TMDB...');
-    const tmdbContent = await loadTMDBContent();
+    console.log(`   Carregado: ${realContent.length} itens`);
 
-    // Combinar: LOCAL primeiro, depois TMDB
-    const allContent = [...localContent, ...tmdbContent];
-    
-    console.log(`\n📊 Conteúdo Total: ${allContent.length} itens`);
-    console.log(`   LOCAL: ${localContent.length} itens (carregados primeiro)`);
-    console.log(`   TMDB: ${tmdbContent.length} itens (carregados depois)`);
-
-    if (allContent.length === 0) {
+    if (realContent.length === 0) {
       // Fallback para conteúdo demo se nada carregar
       console.warn('⚠️ Usando conteúdo DEMO como fallback');
       cachedMovies = DEMO_MOVIES;
@@ -723,15 +882,21 @@ export async function loadAllContent(): Promise<{
       return { movies: DEMO_MOVIES, series: DEMO_SERIES };
     }
 
+    // PASSO 2: Enriquecer com dados do TMDB (gêneros, backdrop, logo)
+    console.log('\n🌐 PASSO 2: Enriquecendo com dados do TMDB...');
+    const enrichedContent = await enrichContentBatch(realContent);
+
     // Separar filmes e séries
-    const allMovies = allContent.filter(item => item.type === 'movie');
-    const allSeries = allContent.filter(item => item.type === 'tv');
+    const allMovies = enrichedContent.filter(item => item.type === 'movie');
+    const allSeries = enrichedContent.filter(item => item.type === 'tv');
 
     console.log('✅ ═══════════════════════════════════════════════════');
-    console.log(`✅ CARREGAMENTO PROGRESSIVO COMPLETO!`);
-    console.log(`   Filmes: ${allMovies.length} (${localContent.filter(i => i.type === 'movie').length} locais)`);
-    console.log(`   Séries: ${allSeries.length} (${localContent.filter(i => i.type === 'tv').length} locais)`);
-    console.log(`   Conteúdo LOCAL aparece PRIMEIRO na lista`);
+    console.log(`✅ CARREGAMENTO COMPLETO!`);
+    console.log(`   Total: ${enrichedContent.length} itens`);
+    console.log(`   Filmes: ${allMovies.length}`);
+    console.log(`   Séries: ${allSeries.length}`);
+    console.log(`   Imagens: locais (/images/posters/)`);
+    console.log(`   Gêneros: enriquecidos do TMDB`);
     console.log('✅ ═══════════════════════════════════════════════════');
 
     // Cache
