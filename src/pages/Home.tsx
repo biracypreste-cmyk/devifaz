@@ -1,45 +1,65 @@
-import React, { useEffect, useState } from 'react';
-import { contentService } from '../services/contentService';
-import { EnrichedContent } from '../types/content';
+import { useEffect, useState } from 'react';
+import { loadAllContent, groupContentByGenre, Content } from '../utils/primeVicioLoader';
 import { MovieCard } from '../components/MovieCard';
 import { Movie } from '../utils/tmdb';
 
 interface HomeProps {
-    onPlay: (item: EnrichedContent) => void;
+    onPlay: (item: Content) => void;
 }
 
 export function Home({ onPlay }: HomeProps) {
-    const [content, setContent] = useState<{
-        trending: EnrichedContent[];
-        popularMovies: EnrichedContent[];
-        popularSeries: EnrichedContent[];
-    } | null>(null);
+    const [contentByGenre, setContentByGenre] = useState<Record<string, Content[]> | null>(null);
+    const [allContent, setAllContent] = useState<Content[]>([]);
+    const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const load = async () => {
-            await contentService.loadAllContent();
-            const data = await contentService.getEnrichedHomeContent();
-            setContent(data);
+            setLoading(true);
+            try {
+                console.log('🏠 Carregando conteúdo para Home...');
+                
+                // Fonte única de dados: loadAllContent()
+                const { movies, series } = await loadAllContent();
+                
+                // Normalizar filmes + séries no mesmo formato (já estão no formato Content)
+                const normalized: Content[] = [...movies, ...series];
+                
+                console.log(`✅ ${normalized.length} itens carregados (${movies.length} filmes + ${series.length} séries)`);
+                
+                // Agrupar TODO o conteúdo por gênero
+                const grouped = groupContentByGenre(normalized);
+                
+                console.log(`📂 Agrupado em ${Object.keys(grouped).length} gêneros`);
+                
+                setAllContent(normalized);
+                setContentByGenre(grouped);
+                setLoading(false);
+            } catch (error) {
+                console.error('❌ Erro ao carregar conteúdo:', error);
+                setContentByGenre({});
+                setAllContent([]);
+                setLoading(false);
+            }
         };
         load();
     }, []);
 
-    // Conversor de EnrichedContent para Movie (interface do TMDB usada pelo MovieCard)
-    const toMovie = (item: EnrichedContent): Movie => ({
+    // Conversor de Content para Movie (interface do TMDB usada pelo MovieCard)
+    const toMovie = (item: Content): Movie => ({
         id: item.id,
         title: item.title,
-        name: item.title,
+        name: item.name,
         overview: item.overview || '',
-        poster_path: item.posterPath || '',
-        backdrop_path: item.backdropPath || '',
-        vote_average: item.rating || 0,
-        media_type: item.type === 'series' ? 'tv' : 'movie',
-        release_date: item.releaseDate,
-        first_air_date: item.releaseDate,
+        poster_path: item.poster_path || '',
+        backdrop_path: item.backdrop_path || '',
+        vote_average: item.vote_average || 0,
+        media_type: item.type === 'tv' ? 'tv' : 'movie',
+        release_date: item.release_date,
+        first_air_date: item.first_air_date,
         streamUrl: item.streamUrl
     });
 
-    if (!content) {
+    if (loading) {
         return (
             <div className="flex h-screen items-center justify-center bg-black">
                 <div className="h-12 w-12 animate-spin rounded-full border-4 border-red-600 border-t-transparent"></div>
@@ -47,7 +67,15 @@ export function Home({ onPlay }: HomeProps) {
         );
     }
 
-    const heroItem = content.trending[0];
+    // Pegar o primeiro item para o hero (pode ser filme ou série)
+    const heroItem = allContent[0];
+
+    // Ordenar gêneros por quantidade de conteúdo (mais populares primeiro)
+    const sortedGenres = contentByGenre 
+        ? Object.entries(contentByGenre)
+            .sort((a, b) => b[1].length - a[1].length)
+            .filter(([_, items]) => items.length > 0)
+        : [];
 
     return (
         <div className="min-h-screen bg-redflix-gradient pb-20">
@@ -56,7 +84,7 @@ export function Home({ onPlay }: HomeProps) {
                 <div className="relative h-[80vh] w-full overflow-hidden">
                     <div className="absolute inset-0">
                         <img
-                            src={heroItem.backdropPath || heroItem.posterPath}
+                            src={heroItem.backdrop_path || heroItem.poster_path}
                             alt={heroItem.title}
                             className="h-full w-full object-cover"
                         />
@@ -86,52 +114,23 @@ export function Home({ onPlay }: HomeProps) {
                 </div>
             )}
 
-            {/* Content Grids - Mesmo estilo da página Series/Movies */}
+            {/* Content Grids - Seções por gênero (Brasil), misturando filmes e séries */}
             <div className="relative z-10 -mt-32 px-12 space-y-12">
-                {/* Tendências */}
-                <div>
-                    <h2 className="text-2xl font-bold text-white mb-6">Tendências</h2>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px]">
-                        {content.trending.slice(1).map(item => (
-                            <div key={item.id} className="relative z-10">
-                                <MovieCard
-                                    movie={toMovie(item)}
-                                    onClick={() => onPlay(item)}
-                                />
-                            </div>
-                        ))}
+                {sortedGenres.map(([genreName, items]) => (
+                    <div key={genreName}>
+                        <h2 className="text-2xl font-bold text-white mb-6">{genreName}</h2>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px]">
+                            {items.slice(0, 14).map(item => (
+                                <div key={`${genreName}-${item.id}`} className="relative z-10">
+                                    <MovieCard
+                                        movie={toMovie(item)}
+                                        onClick={() => onPlay(item)}
+                                    />
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                </div>
-
-                {/* Filmes Populares */}
-                <div>
-                    <h2 className="text-2xl font-bold text-white mb-6">Filmes Populares</h2>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px]">
-                        {content.popularMovies.map(item => (
-                            <div key={item.id} className="relative z-10">
-                                <MovieCard
-                                    movie={toMovie(item)}
-                                    onClick={() => onPlay(item)}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* Séries do Momento */}
-                <div>
-                    <h2 className="text-2xl font-bold text-white mb-6">Séries do Momento</h2>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px]">
-                        {content.popularSeries.map(item => (
-                            <div key={item.id} className="relative z-10">
-                                <MovieCard
-                                    movie={toMovie(item)}
-                                    onClick={() => onPlay(item)}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </div>
+                ))}
             </div>
         </div>
     );

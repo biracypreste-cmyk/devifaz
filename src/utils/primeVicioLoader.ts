@@ -239,6 +239,80 @@ export interface Content {
   }>;
 }
 
+// Mapeamento de gêneros TMDB para nomes em português (Brasil)
+export const GENRE_MAP: Record<number, string> = {
+  28: 'Ação',
+  12: 'Aventura',
+  16: 'Animação',
+  35: 'Comédia',
+  80: 'Crime',
+  99: 'Documentário',
+  18: 'Drama',
+  10751: 'Família',
+  14: 'Fantasia',
+  36: 'História',
+  27: 'Terror',
+  10402: 'Música',
+  9648: 'Mistério',
+  10749: 'Romance',
+  878: 'Ficção Científica',
+  10770: 'Cinema TV',
+  53: 'Suspense',
+  10752: 'Guerra',
+  37: 'Faroeste',
+  // Gêneros de TV
+  10759: 'Ação & Aventura',
+  10762: 'Infantil',
+  10763: 'Notícias',
+  10764: 'Reality',
+  10765: 'Sci-Fi & Fantasia',
+  10766: 'Novela',
+  10767: 'Talk Show',
+  10768: 'Guerra & Política',
+};
+
+/**
+ * Agrupa conteúdo (filmes + séries) por gênero
+ * Retorna um objeto onde as chaves são os nomes dos gêneros em português
+ * e os valores são arrays de Content
+ */
+export function groupContentByGenre(allContent: Content[]): Record<string, Content[]> {
+  const grouped: Record<string, Content[]> = {};
+
+  for (const item of allContent) {
+    // Pegar genre_ids do item
+    const genreIds = item.genre_ids || [];
+    
+    // Se não tiver gêneros, colocar em "Outros"
+    if (genreIds.length === 0) {
+      if (!grouped['Outros']) {
+        grouped['Outros'] = [];
+      }
+      grouped['Outros'].push(item);
+      continue;
+    }
+
+    // Adicionar o item a cada gênero que ele pertence
+    for (const genreId of genreIds) {
+      const genreName = GENRE_MAP[genreId] || 'Outros';
+      if (!grouped[genreName]) {
+        grouped[genreName] = [];
+      }
+      // Evitar duplicatas no mesmo gênero
+      if (!grouped[genreName].some(existing => existing.id === item.id)) {
+        grouped[genreName].push(item);
+      }
+    }
+  }
+
+  // Ordenar cada gênero por popularidade/rating
+  for (const genre of Object.keys(grouped)) {
+    grouped[genre].sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0));
+  }
+
+  return grouped;
+}
+
 // Cache em memória
 let cachedMovies: Content[] | null = null;
 let cachedSeries: Content[] | null = null;
