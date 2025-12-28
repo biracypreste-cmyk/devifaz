@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Movie, getDetails, getImages, getSeason, getCredits, getImageUrl, getTitle, getVideos } from '../utils/tmdb';
+import { Movie, getDetails, getSeason, getImageUrl, getTitle } from '../utils/tmdb';
 import { OptimizedImage } from './OptimizedImage';
 import { UniversalPlayer } from './UniversalPlayer';
-import { getContentUrl, isValidStreamUrl } from '../utils/contentUrls';
 
 // Icons inline to avoid lucide-react dependency
 const Play = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
@@ -32,10 +31,25 @@ const ArrowLeft = ({ size = 24, className = "" }: { size?: number; className?: s
   </svg>
 );
 
-const X = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
+const Star = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+  </svg>
+);
+
+const Calendar = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-    <line x1="18" y1="6" x2="6" y2="18"></line>
-    <line x1="6" y1="6" x2="18" y2="18"></line>
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+    <line x1="16" y1="2" x2="16" y2="6"></line>
+    <line x1="8" y1="2" x2="8" y2="6"></line>
+    <line x1="3" y1="10" x2="21" y2="10"></line>
+  </svg>
+);
+
+const Clock = ({ size = 24, className = "" }: { size?: number; className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <circle cx="12" cy="12" r="10"></circle>
+    <polyline points="12 6 12 12 16 14"></polyline>
   </svg>
 );
 
@@ -67,11 +81,16 @@ interface Cast {
   profile_path: string | null;
 }
 
+interface Genre {
+  id: number;
+  name: string;
+}
+
 export function MovieDetails({ movie, onClose, onActorClick, onPlayMovie }: { 
   movie: Movie; 
   onClose: () => void; 
   onActorClick?: (actorId: number, actorName: string) => void;
-  onPlayMovie?: (movie: Movie) => void; // ✅ CALLBACK PARA ABRIR O PLAYER
+  onPlayMovie?: (movie: Movie) => void;
 }) {
   const [details, setDetails] = useState<any>(null);
   const [logo, setLogo] = useState<string | null>(null);
@@ -79,11 +98,12 @@ export function MovieDetails({ movie, onClose, onActorClick, onPlayMovie }: {
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [currentSeason, setCurrentSeason] = useState<Season | null>(null);
   const [cast, setCast] = useState<Cast[]>([]);
+  const [genres, setGenres] = useState<Genre[]>([]);
   const [loading, setLoading] = useState(true);
-  const [playingVideo, setPlayingVideo] = useState<string | null>(null);
   const [trailerKey, setTrailerKey] = useState<string | null>(null);
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [showUniversalPlayer, setShowUniversalPlayer] = useState(false);
+  const [backdropUrl, setBackdropUrl] = useState<string | null>(null);
 
   // ✅ DETECÇÃO CORRETA DO TIPO DE MÍDIA - MELHORADA
   // Prioridade de detecção:
@@ -115,52 +135,42 @@ export function MovieDetails({ movie, onClose, onActorClick, onPlayMovie }: {
       try {
         setLoading(true);
         
-        console.log('🎬 MovieDetails - Abrindo detalhes:', {
+        console.log('🎬 MovieDetails - Carregando detalhes do TMDB:', {
           id: movie.id,
           title: movie.title || movie.name,
           mediaType: mediaType,
-          mediaTypeExplicit: movie.media_type,
-          hasFirstAirDate: !!movie.first_air_date,
-          hasReleaseDate: !!movie.release_date,
-          hasName: !!movie.name,
-          hasTitle: !!movie.title,
-          firstAirDate: movie.first_air_date,
-          releaseDate: movie.release_date,
-          streamUrl: (movie as any).streamUrl,
-          objectKeys: Object.keys(movie)
         });
         
-        // ✅ PRIORIDADE 1: Usar streamUrl que vem DIRETO do objeto movie (do filmes.txt)
+        // Usar streamUrl que vem do objeto movie
         if ((movie as any).streamUrl) {
           console.log('✅ Stream URL encontrada no objeto movie:', (movie as any).streamUrl);
           setStreamUrl((movie as any).streamUrl);
         }
         
         // Validar ID antes de buscar
-        if (!movie.id || movie.id <= 0) {
+        if (!movie.id || Number(movie.id) <= 0) {
           console.warn('⚠️ Invalid movie ID, skipping fetch');
           setLoading(false);
           return;
         }
         
-        // Fetch full details com append_to_response (traz tudo de uma vez)
-        const detailsData = await getDetails(mediaType, movie.id);
+        // Fetch detalhes completos do TMDB com append_to_response
+        const detailsData = await getDetails(mediaType, Number(movie.id));
         setDetails(detailsData);
         
-        // ✅ PRIORIDADE 2: Se não tem streamUrl no objeto, buscar por título (fallback)
-        if (!(movie as any).streamUrl) {
-          const title = getTitle(movie);
-          const url = await getContentUrl(title, mediaType);
-          
-          if (url && isValidStreamUrl(url)) {
-            console.log('✅ Stream URL encontrada por busca de título:', url);
-            setStreamUrl(url);
-          } else {
-            console.log('⚠️ Nenhuma URL de stream encontrada para:', title);
-          }
+        // Extrair backdrop em alta resolucao do TMDB (NAO usar imagens locais)
+        if (detailsData.backdrop_path) {
+          setBackdropUrl(getImageUrl(detailsData.backdrop_path, 'original'));
+        } else if (detailsData.poster_path) {
+          setBackdropUrl(getImageUrl(detailsData.poster_path, 'original'));
         }
         
-        // Extrair logo das imagens (já vem no append_to_response)
+        // Extrair generos do TMDB
+        if (detailsData.genres) {
+          setGenres(detailsData.genres);
+        }
+        
+        // Extrair logo das imagens do TMDB
         if (detailsData.images?.logos) {
           const logoImage = detailsData.images.logos.find((l: any) => l.iso_639_1 === 'pt') || 
                            detailsData.images.logos.find((l: any) => l.iso_639_1 === 'en') || 
@@ -170,12 +180,12 @@ export function MovieDetails({ movie, onClose, onActorClick, onPlayMovie }: {
           }
         }
         
-        // Extrair elenco (já vem no append_to_response)
+        // Extrair elenco completo do TMDB
         if (detailsData.credits?.cast) {
           setCast(detailsData.credits.cast.slice(0, 20));
         }
         
-        // Extrair trailer (já vem no append_to_response)
+        // Extrair trailer do TMDB
         if (detailsData.videos?.results) {
           const trailer = detailsData.videos.results.find((v: any) => 
             v.type === 'Trailer' && v.site === 'YouTube'
@@ -185,22 +195,16 @@ export function MovieDetails({ movie, onClose, onActorClick, onPlayMovie }: {
           }
         }
         
-        // Se for série, processar temporadas
+        // Se for serie, processar temporadas do TMDB
         if (mediaType === 'tv' && detailsData.seasons) {
           const validSeasons = detailsData.seasons.filter((s: any) => s.season_number > 0);
-          console.log('📺 Temporadas válidas encontradas:', validSeasons.length);
+          console.log('📺 Temporadas do TMDB:', validSeasons.length);
           setSeasons(validSeasons);
           
-          // Buscar episódios da primeira temporada
+          // Buscar episodios da primeira temporada
           if (validSeasons.length > 0) {
             try {
-              console.log('📺 Buscando episódios da Temporada 1...');
-              const seasonData = await getSeason(movie.id, 1);
-              console.log('✅ Episódios da Temporada 1:', {
-                hasEpisodes: !!seasonData?.episodes,
-                episodeCount: seasonData?.episodes?.length || 0,
-                seasonData: seasonData
-              });
+              const seasonData = await getSeason(Number(movie.id), 1);
               setCurrentSeason(seasonData);
             } catch (error) {
               console.error('❌ Erro ao buscar temporada 1:', error);
@@ -210,12 +214,10 @@ export function MovieDetails({ movie, onClose, onActorClick, onPlayMovie }: {
         
         setLoading(false);
       } catch (error) {
-        // Silenciar 404s (conteúdo não encontrado é esperado)
         const errorMessage = error instanceof Error ? error.message : String(error);
         if (!errorMessage.includes('Not found')) {
           console.error('❌ Error fetching movie details:', error);
         }
-        // Mesmo com erro, continuar sem travar a UI
         setLoading(false);
       }
     }
@@ -227,13 +229,8 @@ export function MovieDetails({ movie, onClose, onActorClick, onPlayMovie }: {
     async function fetchSeasonEpisodes() {
       if (mediaType === 'tv' && selectedSeason > 0) {
         try {
-          console.log(`📺 Buscando temporada ${selectedSeason} da série ${movie.id}...`);
-          const seasonData = await getSeason(movie.id, selectedSeason);
-          console.log(`✅ Temporada ${selectedSeason} carregada:`, {
-            hasEpisodes: !!seasonData.episodes,
-            episodeCount: seasonData.episodes?.length || 0,
-            seasonName: seasonData.name
-          });
+          console.log(`📺 Buscando temporada ${selectedSeason} do TMDB...`);
+          const seasonData = await getSeason(Number(movie.id), selectedSeason);
           setCurrentSeason(seasonData);
         } catch (error) {
           console.error(`❌ Error fetching season ${selectedSeason}:`, error);
@@ -244,51 +241,46 @@ export function MovieDetails({ movie, onClose, onActorClick, onPlayMovie }: {
     fetchSeasonEpisodes();
   }, [selectedSeason, movie.id, mediaType]);
 
-  if (loading || !details) {
+  if (loading) {
     return (
-      <div className="fixed inset-0 bg-[#151515] z-50 flex items-center justify-center">
-        <p className="text-white text-xl">Carregando...</p>
+      <div className="fixed inset-0 bg-black/95 z-50 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-white/80 text-lg">Carregando detalhes...</p>
+        </div>
       </div>
     );
   }
 
-  // ✅ FALLBACK: Se não tem backdrop_path, usar poster_path
-  const backdropUrl = movie.backdrop_path 
-    ? getImageUrl(movie.backdrop_path, 'original') 
-    : (movie.poster_path ? getImageUrl(movie.poster_path, 'original') : null);
+  // Helper functions
+  const formatRuntime = (minutes: number) => {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return hours > 0 ? `${hours}h ${mins}min` : `${mins}min`;
+  };
+
+  const getReleaseYear = () => {
+    const date = details?.release_date || details?.first_air_date;
+    return date ? new Date(date).getFullYear() : null;
+  };
 
   const handlePlayClick = () => {
-    // ✅ PRIORIDADE: Se onPlayMovie foi passado, usar o Player HTML5 nativo
+    // Usar streamUrl do objeto movie para o botao Assistir
     if (onPlayMovie && streamUrl) {
-      console.log('🎬 Abrindo Player HTML5 nativo com URL:', streamUrl);
+      console.log('🎬 Abrindo Player com streamUrl:', streamUrl);
       onPlayMovie({ ...movie, streamUrl });
       return;
     }
-    
-    // Fallback: Abrir Universal Player com stream URL ou trailer
     setShowUniversalPlayer(true);
-    console.log('🎬 Abrindo player universal...');
-    console.log('📡 Stream URL:', streamUrl);
-    console.log('🎥 Trailer Key:', trailerKey);
   };
 
-  const handleEpisodePlay = (episodeId: number) => {
-    // ✅ SEMPRE usar UniversalPlayer com streamUrl REAL
-    console.log('🎬 Reproduzindo episódio...');
-    console.log('📡 Stream URL:', streamUrl);
-    
-    if (streamUrl) {
-      // Se tem streamUrl, abrir Universal Player
-      setShowUniversalPlayer(true);
-    } else {
-      console.warn('⚠️ Nenhuma URL de stream disponível para este episódio');
-      // Mesmo sem streamUrl, abrir player (vai tentar trailer ou mostrar aviso)
-      setShowUniversalPlayer(true);
-    }
+  const handleEpisodePlay = (_episodeNumber: number, _seasonNumber: number) => {
+    console.log('🎬 Reproduzindo episodio...');
+    setShowUniversalPlayer(true);
   };
 
   return (
-    <div className="fixed inset-0 bg-[#151515] z-50 overflow-y-auto">
+    <div className="fixed inset-0 bg-black z-50 overflow-y-auto">
       {/* Universal Player */}
       {showUniversalPlayer && (
         <UniversalPlayer
@@ -299,140 +291,207 @@ export function MovieDetails({ movie, onClose, onActorClick, onPlayMovie }: {
         />
       )}
       
-      {/* Header with backdrop */}
-      <div className="relative h-[500px]">
+      {/* Hero Section com Backdrop HD do TMDB */}
+      <div className="relative min-h-[85vh]">
+        {/* Backdrop em alta resolucao do TMDB */}
         {backdropUrl && (
-          <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute inset-0">
             <OptimizedImage
               src={backdropUrl}
               alt={getTitle(movie)}
               priority={true}
               width={1920}
               height={1080}
-              quality={90}
+              quality={95}
               useProxy={true}
               className="w-full h-full object-cover"
             />
+            {/* Gradientes para efeito premium */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-transparent to-transparent" />
           </div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#151515] via-[rgba(21,21,21,0.7)] to-transparent" />
         
-        {/* Back button */}
+        {/* Botao Voltar com efeito de vidro */}
         <button
           onClick={onClose}
-          className="absolute top-6 left-6 z-10 flex items-center gap-2 text-white hover:text-red-600 transition-colors"
+          className="absolute top-6 left-6 z-20 flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md bg-white/10 border border-white/20 text-white hover:bg-white/20 transition-all duration-300"
         >
-          <ArrowLeft size={24} />
-          <span className="font-['Inter:Medium',sans-serif] text-[16px]">Voltar</span>
+          <ArrowLeft size={20} />
+          <span className="text-sm font-medium">Voltar</span>
         </button>
         
-        {/* Title and info */}
-        <div className="absolute bottom-0 left-0 right-0 p-8">
-          {logo ? (
-            <div className="mb-4">
-              <img 
-                src={getImageUrl(logo, 'w500')} 
-                alt={getTitle(movie)}
-                className="max-w-[400px] max-h-[120px] object-contain"
-              />
-            </div>
-          ) : (
-            <h1 className="font-['Inter:Extra_Bold',sans-serif] text-[48px] text-white mb-4">
-              {getTitle(movie)}
-            </h1>
-          )}
-          
-          <div className="flex items-center gap-4 mb-4">
-            {details.vote_average && (
-              <div className="flex items-center gap-2">
-                <div className="bg-red-600 rounded px-2 py-1">
-                  <span className="text-white font-['Inter:Bold',sans-serif]">
-                    {details.vote_average.toFixed(1)}
+        {/* Conteudo Principal */}
+        <div className="absolute bottom-0 left-0 right-0 p-8 md:p-12 lg:p-16">
+          <div className="max-w-4xl">
+            {/* Logo ou Titulo */}
+            {logo ? (
+              <div className="mb-6">
+                <img 
+                  src={getImageUrl(logo, 'w500')} 
+                  alt={getTitle(movie)}
+                  className="max-w-[350px] max-h-[140px] object-contain drop-shadow-2xl"
+                />
+              </div>
+            ) : (
+              <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 drop-shadow-lg">
+                {getTitle(movie)}
+              </h1>
+            )}
+            
+            {/* Cards de Metadados com Efeito de Vidro */}
+            <div className="flex flex-wrap gap-3 mb-6">
+              {/* Rating */}
+              {details?.vote_average > 0 && (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md bg-white/10 border border-white/20">
+                  <Star size={16} className="text-yellow-400" />
+                  <span className="text-white font-semibold">{details.vote_average.toFixed(1)}</span>
+                </div>
+              )}
+              
+              {/* Ano */}
+              {getReleaseYear() && (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md bg-white/10 border border-white/20">
+                  <Calendar size={16} className="text-white/70" />
+                  <span className="text-white">{getReleaseYear()}</span>
+                </div>
+              )}
+              
+              {/* Duracao (filmes) ou Temporadas (series) */}
+              {mediaType === 'movie' && details?.runtime > 0 && (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md bg-white/10 border border-white/20">
+                  <Clock size={16} className="text-white/70" />
+                  <span className="text-white">{formatRuntime(details.runtime)}</span>
+                </div>
+              )}
+              {mediaType === 'tv' && details?.number_of_seasons > 0 && (
+                <div className="flex items-center gap-2 px-4 py-2 rounded-full backdrop-blur-md bg-white/10 border border-white/20">
+                  <span className="text-white">
+                    {details.number_of_seasons} {details.number_of_seasons === 1 ? 'Temporada' : 'Temporadas'}
                   </span>
                 </div>
-              </div>
+              )}
+              
+              {/* Generos do TMDB */}
+              {genres.length > 0 && genres.slice(0, 3).map((genre) => (
+                <div 
+                  key={genre.id}
+                  className="px-4 py-2 rounded-full backdrop-blur-md bg-white/10 border border-white/20"
+                >
+                  <span className="text-white/90">{genre.name}</span>
+                </div>
+              ))}
+            </div>
+            
+            {/* Sinopse */}
+            {details?.overview && (
+              <p className="text-white/80 text-base md:text-lg leading-relaxed max-w-3xl mb-8 line-clamp-4">
+                {details.overview}
+              </p>
             )}
-            {mediaType === 'tv' && details.number_of_seasons && (
-              <span className="text-white font-['Inter:Medium',sans-serif]">
-                {details.number_of_seasons} {details.number_of_seasons === 1 ? 'temporada' : 'temporadas'}
-              </span>
-            )}
-            {details.genres && details.genres.length > 0 && (
-              <span className="text-[#bebebe] font-['Inter:Medium',sans-serif]">
-                {details.genres.map((g: any) => g.name).join(', ')}
-              </span>
-            )}
-          </div>
-          
-          <p className="text-[#bebebe] font-['Inter:Medium',sans-serif] text-[16px] max-w-[800px] mb-6">
-            {movie.overview}
-          </p>
-          
-          <div className="flex gap-4">
-            <button 
-              onClick={handlePlayClick}
-              className="bg-red-600 hover:bg-red-700 transition-colors rounded-[4px] px-6 py-3 flex items-center gap-2"
-            >
-              <Play size={20} fill="white" color="white" />
-              <span className="text-white font-['Inter:Semi_Bold',sans-serif] text-[16px]">Assistir</span>
-            </button>
-            <button className="bg-[#333333] hover:bg-[#404040] transition-colors rounded-[4px] px-6 py-3 flex items-center gap-2">
-              <Info size={20} color="white" />
-              <span className="text-white font-['Inter:Semi_Bold',sans-serif] text-[16px]">Mais Info</span>
-            </button>
-            <button className="bg-[#333333] hover:bg-[#404040] transition-colors rounded-[4px] px-4 py-3">
-              <Heart size={20} color="white" />
-            </button>
+            
+            {/* Botoes de Acao com Efeito de Vidro */}
+            <div className="flex flex-wrap gap-4">
+              {/* Botao Assistir - usa streamUrl do item */}
+              <button 
+                onClick={handlePlayClick}
+                className="flex items-center gap-3 px-8 py-4 bg-red-600 hover:bg-red-700 rounded-lg text-white font-semibold text-lg transition-all duration-300 shadow-lg shadow-red-600/30 hover:shadow-red-600/50 hover:scale-105"
+              >
+                <Play size={24} fill="white" />
+                <span>Assistir</span>
+              </button>
+              
+              {/* Botao Trailer */}
+              {trailerKey && (
+                <button 
+                  onClick={() => setShowUniversalPlayer(true)}
+                  className="flex items-center gap-3 px-6 py-4 backdrop-blur-md bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg text-white font-semibold transition-all duration-300 hover:scale-105"
+                >
+                  <Info size={20} />
+                  <span>Trailer</span>
+                </button>
+              )}
+              
+              {/* Botao Favoritos */}
+              <button className="flex items-center justify-center w-14 h-14 backdrop-blur-md bg-white/10 hover:bg-white/20 border border-white/30 rounded-full text-white transition-all duration-300 hover:scale-110">
+                <Heart size={22} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
       
-      {/* Content area */}
-      <div className="px-8 py-8">
-        {/* Cast */}
+      {/* Secao de Conteudo com Efeito de Vidro */}
+      <div className="relative bg-gradient-to-b from-black to-zinc-900 px-8 md:px-12 lg:px-16 py-12">
+        
+        {/* Informacoes Adicionais - Card de Vidro */}
+        {details && (
+          <div className="mb-12 p-6 rounded-2xl backdrop-blur-md bg-white/5 border border-white/10">
+            <h2 className="text-2xl font-bold text-white mb-6">Informacoes</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {details.original_title && details.original_title !== getTitle(movie) && (
+                <div>
+                  <p className="text-white/50 text-sm mb-1">Titulo Original</p>
+                  <p className="text-white">{details.original_title || details.original_name}</p>
+                </div>
+              )}
+              {details.status && (
+                <div>
+                  <p className="text-white/50 text-sm mb-1">Status</p>
+                  <p className="text-white">{details.status}</p>
+                </div>
+              )}
+              {details.original_language && (
+                <div>
+                  <p className="text-white/50 text-sm mb-1">Idioma Original</p>
+                  <p className="text-white uppercase">{details.original_language}</p>
+                </div>
+              )}
+              {details.production_companies && details.production_companies.length > 0 && (
+                <div>
+                  <p className="text-white/50 text-sm mb-1">Producao</p>
+                  <p className="text-white">{details.production_companies.slice(0, 2).map((c: any) => c.name).join(', ')}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
+        {/* Elenco Principal - Cards de Vidro */}
         {cast.length > 0 && (
-          <div className="mb-8">
-            <h2 className="font-['Inter:Bold',sans-serif] text-[24px] text-white mb-6">Elenco Principal</h2>
+          <div className="mb-12">
+            <h2 className="text-2xl font-bold text-white mb-6">Elenco Principal</h2>
             <div className="flex gap-4 overflow-x-auto pb-4 scrollbar-hide">
               {cast.map((actor) => (
                 <div 
                   key={actor.id} 
-                  className="flex-shrink-0 flex flex-col items-center gap-2 w-[120px] group cursor-pointer hover:scale-105 transition-transform duration-300"
-                  onClick={() => {
-                    console.log('🎭 Clicou no ator:', actor.name, 'ID:', actor.id);
-                    onActorClick?.(actor.id, actor.name);
-                  }}
+                  className="flex-shrink-0 w-[140px] group cursor-pointer"
+                  onClick={() => onActorClick?.(actor.id, actor.name)}
                 >
-                  <div className="relative w-[100px] h-[100px] rounded-full overflow-hidden border-2 border-white/10 group-hover:border-red-600 group-hover:shadow-lg group-hover:shadow-red-600/50 transition-all duration-300">
-                    {actor.profile_path ? (
-                      <OptimizedImage
-                        src={getImageUrl(actor.profile_path, 'w300')}
-                        alt={actor.name}
-                        width={100}
-                        height={100}
-                        quality={85}
-                        useProxy={true}
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-[#333333] flex items-center justify-center">
-                        <svg 
-                          className="w-12 h-12 text-white/30" 
-                          fill="currentColor" 
-                          viewBox="0 0 20 20"
-                        >
-                          <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-center">
-                    <p className="text-white font-['Inter:Medium',sans-serif] text-[14px] truncate w-full">
-                      {actor.name}
-                    </p>
-                    <p className="text-[#bebebe] font-['Inter:Regular',sans-serif] text-[12px] truncate w-full">
-                      {actor.character}
-                    </p>
+                  <div className="relative rounded-xl overflow-hidden backdrop-blur-md bg-white/5 border border-white/10 hover:border-white/30 transition-all duration-300 hover:scale-105">
+                    <div className="aspect-[2/3] overflow-hidden">
+                      {actor.profile_path ? (
+                        <OptimizedImage
+                          src={getImageUrl(actor.profile_path, 'w300')}
+                          alt={actor.name}
+                          width={140}
+                          height={210}
+                          quality={85}
+                          useProxy={true}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-zinc-800 flex items-center justify-center">
+                          <svg className="w-12 h-12 text-white/20" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-3 backdrop-blur-md bg-black/50">
+                      <p className="text-white font-medium text-sm truncate">{actor.name}</p>
+                      <p className="text-white/60 text-xs truncate">{actor.character}</p>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -440,163 +499,117 @@ export function MovieDetails({ movie, onClose, onActorClick, onPlayMovie }: {
           </div>
         )}
         
-        {/* Seasons & Episodes for TV shows */}
-        {mediaType === 'tv' && (
+        {/* Temporadas e Episodios para Series - Cards de Vidro */}
+        {mediaType === 'tv' && seasons.length > 0 && (
           <div className="mb-12">
-            {seasons.length > 0 ? (
-              <>
-                <h2 className="font-['Inter:Bold',sans-serif] text-[24px] text-white mb-6">
-                  Episódios
-                </h2>
+            <h2 className="text-2xl font-bold text-white mb-6">Episodios</h2>
             
-            {/* Season Selector Dropdown - Estilo Netflix */}
+            {/* Seletor de Temporada com Efeito de Vidro */}
             <div className="mb-6">
               <select
                 value={selectedSeason}
                 onChange={(e) => setSelectedSeason(Number(e.target.value))}
-                className="bg-[#252525] text-white border-2 border-[#404040] rounded px-4 py-2 font-['Inter:Medium',sans-serif] text-[16px] min-w-[200px] hover:border-[#666] focus:border-white focus:outline-none transition-colors cursor-pointer"
+                className="px-6 py-3 rounded-xl backdrop-blur-md bg-white/10 border border-white/20 text-white font-medium min-w-[200px] focus:outline-none focus:border-white/40 transition-colors cursor-pointer"
               >
                 {seasons.map((season) => (
-                  <option key={season.id} value={season.season_number}>
+                  <option key={season.id} value={season.season_number} className="bg-zinc-900">
                     Temporada {season.season_number}
                   </option>
                 ))}
               </select>
             </div>
             
-            {/* Episodes list */}
-            {currentSeason && currentSeason.episodes && currentSeason.episodes.length > 0 ? (
-              <div className="space-y-3">
-                {/* Informações da Temporada */}
-                {currentSeason.overview && (
-                  <div className="bg-[#1a1a1a] rounded p-4 mb-6 border border-[#333]">
-                    <h3 className="font-['Inter:Semi_Bold',sans-serif] text-[16px] text-white mb-2">
-                      {currentSeason.name}
-                    </h3>
-                    <p className="text-[#bebebe] font-['Inter:Regular',sans-serif] text-[14px]">
-                      {currentSeason.overview}
-                    </p>
-                    <div className="flex items-center gap-4 mt-3 text-[13px] text-[#888]">
-                      {currentSeason.air_date && (
-                        <span>
-                          Lançamento: {new Date(currentSeason.air_date).getFullYear()}
-                        </span>
-                      )}
-                      <span>
-                        {currentSeason.episodes.length} episódio{currentSeason.episodes.length > 1 ? 's' : ''}
-                      </span>
-                    </div>
-                  </div>
-                )}
-                
-                {/* Lista de Episódios - Estilo Netflix */}
-                {currentSeason.episodes.map((episode, episodeIndex) => (
+            {/* Info da Temporada */}
+            {currentSeason?.overview && (
+              <div className="mb-6 p-4 rounded-xl backdrop-blur-md bg-white/5 border border-white/10">
+                <h3 className="text-lg font-semibold text-white mb-2">{currentSeason.name}</h3>
+                <p className="text-white/70 text-sm">{currentSeason.overview}</p>
+                <div className="flex gap-4 mt-3 text-sm text-white/50">
+                  {currentSeason.air_date && (
+                    <span>Lancamento: {new Date(currentSeason.air_date).getFullYear()}</span>
+                  )}
+                  <span>{currentSeason.episodes?.length || 0} episodios</span>
+                </div>
+              </div>
+            )}
+            
+            {/* Lista de Episodios */}
+            {currentSeason?.episodes && currentSeason.episodes.length > 0 ? (
+              <div className="space-y-4">
+                {currentSeason.episodes.map((episode) => (
                   <div 
-                    key={`${currentSeason.id}-${episode.id}-${episodeIndex}`}
-                    className="bg-[#252525] rounded-md overflow-hidden hover:bg-[#2a2a2a] transition-colors group border-b border-[#404040] last:border-0"
+                    key={episode.id}
+                    className="flex gap-4 p-4 rounded-xl backdrop-blur-md bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 transition-all duration-300 group"
                   >
-                    <div className="flex gap-4 p-4">
-                      {/* Thumbnail do Episódio */}
+                    {/* Thumbnail */}
+                    <div className="relative w-[180px] h-[100px] flex-shrink-0 rounded-lg overflow-hidden bg-zinc-800">
                       {episode.still_path ? (
-                        <div className="relative w-[150px] h-[84px] flex-shrink-0 rounded overflow-hidden bg-[#1a1a1a]">
-                          <OptimizedImage
-                            src={getImageUrl(episode.still_path, 'w300')}
-                            alt={episode.name}
-                            width={150}
-                            height={84}
-                            quality={80}
-                            useProxy={true}
-                            className="w-full h-full object-cover"
-                          />
-                          {/* Play button overlay */}
-                          <button
-                            onClick={() => handleEpisodePlay(episode.id)}
-                            className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                          >
-                            <div className="border-2 border-white rounded-full w-10 h-10 flex items-center justify-center hover:bg-white/20 transition-colors">
-                              <Play size={20} fill="white" color="white" />
-                            </div>
-                          </button>
-                        </div>
+                        <OptimizedImage
+                          src={getImageUrl(episode.still_path, 'w300')}
+                          alt={episode.name}
+                          width={180}
+                          height={100}
+                          quality={80}
+                          useProxy={true}
+                          className="w-full h-full object-cover"
+                        />
                       ) : (
-                        <div className="w-[150px] h-[84px] flex-shrink-0 rounded bg-[#1a1a1a] flex items-center justify-center">
-                          <span className="text-[#666] text-[12px]">Sem imagem</span>
+                        <div className="w-full h-full flex items-center justify-center text-white/30 text-xs">
+                          Sem imagem
                         </div>
                       )}
-                      
-                      {/* Episode Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-4 mb-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-1">
-                              <h3 className="font-['Inter:Semi_Bold',sans-serif] text-[16px] text-white">
-                                {episode.episode_number}. {episode.name}
-                              </h3>
-                            </div>
-                            {episode.runtime && (
-                              <span className="text-[#bebebe] font-['Inter:Regular',sans-serif] text-[13px]">
-                                {episode.runtime} min
-                              </span>
-                            )}
-                          </div>
-                          
-                          {/* Play Button - Visible on Desktop */}
-                          <button
-                            onClick={() => handleEpisodePlay(episode.id)}
-                            className="hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity border-2 border-white rounded-full w-9 h-9 items-center justify-center hover:bg-white/20 flex-shrink-0"
-                          >
-                            <Play size={16} fill="white" color="white" />
-                          </button>
+                      {/* Play Overlay */}
+                      <button
+                        onClick={() => handleEpisodePlay(episode.episode_number, selectedSeason)}
+                        className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                      >
+                        <div className="w-12 h-12 rounded-full backdrop-blur-md bg-white/20 border border-white/40 flex items-center justify-center hover:bg-white/30 transition-colors">
+                          <Play size={20} fill="white" />
                         </div>
-                        
-                        <p className="text-[#bebebe] font-['Inter:Regular',sans-serif] text-[14px] line-clamp-2 mb-2">
-                          {episode.overview || 'Sem descrição disponível'}
-                        </p>
-                        
-                        {/* Metadata */}
-                        <div className="flex items-center gap-3 text-[12px] text-[#888]">
-                          {episode.air_date && (
-                            <span>
-                              {new Date(episode.air_date).toLocaleDateString('pt-BR', { 
-                                year: 'numeric', 
-                                month: 'short', 
-                                day: 'numeric' 
-                              })}
-                            </span>
-                          )}
-                          {episode.vote_average && episode.vote_average > 0 && (
-                            <>
-                              <span>•</span>
-                              <span className="text-yellow-500">
-                                ⭐ {episode.vote_average.toFixed(1)}
-                              </span>
-                            </>
-                          )}
-                        </div>
+                      </button>
+                    </div>
+                    
+                    {/* Info do Episodio */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-4 mb-2">
+                        <h3 className="text-white font-semibold">
+                          {episode.episode_number}. {episode.name}
+                        </h3>
+                        {episode.runtime && (
+                          <span className="text-white/50 text-sm flex-shrink-0">{episode.runtime} min</span>
+                        )}
+                      </div>
+                      <p className="text-white/60 text-sm line-clamp-2 mb-2">
+                        {episode.overview || 'Sem descricao disponivel'}
+                      </p>
+                      <div className="flex items-center gap-3 text-xs text-white/40">
+                        {episode.air_date && (
+                          <span>{new Date(episode.air_date).toLocaleDateString('pt-BR')}</span>
+                        )}
+                        {episode.vote_average > 0 && (
+                          <span className="flex items-center gap-1">
+                            <Star size={12} className="text-yellow-400" />
+                            {episode.vote_average.toFixed(1)}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="bg-[#252525] rounded-md p-8 text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#E50914] mx-auto mb-4"></div>
-                <p className="text-[#bebebe] font-['Inter:Medium',sans-serif] text-[16px] mb-2">
-                  Carregando episódios da Temporada {selectedSeason}...
-                </p>
+              <div className="p-8 rounded-xl backdrop-blur-md bg-white/5 border border-white/10 text-center">
+                <div className="w-12 h-12 border-4 border-red-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="text-white/70">Carregando episodios da Temporada {selectedSeason}...</p>
               </div>
             )}
-              </>
-            ) : (
-              <div className="bg-[#252525] rounded-md p-8 text-center">
-                <p className="text-[#bebebe] font-['Inter:Medium',sans-serif] text-[16px] mb-2">
-                  📺 Esta série não possui informações de temporadas disponíveis
-                </p>
-                <p className="text-[#666666] font-['Inter:Regular',sans-serif] text-[14px]">
-                  Tipo de mídia: {mediaType} | Temporadas carregadas: {seasons.length}
-                </p>
-              </div>
-            )}
+          </div>
+        )}
+        
+        {/* Mensagem para series sem temporadas */}
+        {mediaType === 'tv' && seasons.length === 0 && (
+          <div className="p-8 rounded-xl backdrop-blur-md bg-white/5 border border-white/10 text-center">
+            <p className="text-white/70">Esta serie nao possui informacoes de temporadas disponiveis</p>
           </div>
         )}
       </div>
