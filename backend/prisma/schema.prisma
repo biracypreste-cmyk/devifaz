@@ -1,0 +1,383 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Category {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  slug      String    @unique
+  icon      String?
+  order     Int       @default(0)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  channels  Channel[]
+}
+
+model Channel {
+  id         Int      @id @default(autoincrement())
+  name       String
+  logo       String?
+  url        String
+  format     String   @default("ts")
+  active     Boolean  @default(true)
+  order      Int      @default(0)
+  categoryId Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@index([categoryId])
+  @@index([active])
+}
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id           Int           @id @default(autoincrement())
+  email        String        @unique
+  name         String
+  password     String
+  avatar       String?
+  role         String        @default("user")
+  status       String        @default("active")
+  plan         String        @default("basic")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  favorites    Favorite[]
+  payments     Payment[]
+  profiles     Profile[]
+  subscription Subscription?
+  viewHistory  ViewHistory[]
+}
+
+model Subscription {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @unique
+  plan      String    @default("basic")
+  status    String    @default("active")
+  startDate DateTime  @default(now())
+  endDate   DateTime?
+  price     Float     @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Profile {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String
+  avatar    String?
+  isKids    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Content {
+  id            Int           @id @default(autoincrement())
+  tmdbId        Int?
+  imdbId        String?       @unique
+  tvmazeId      Int?          @unique
+  title         String
+  originalTitle String?
+  type          String        @default("movie")
+  overview      String?
+  posterPath    String?
+  backdropPath  String?
+  logoPath      String?
+  trailerUrl    String?
+  streamUrl     String?
+  releaseDate   String?
+  runtime       Int?
+  voteAverage   Float         @default(0)
+  voteCount     Int           @default(0)
+  genres        String?
+  regions       String?
+  country       String?
+  language      String?
+  plans         String?
+  featured      Boolean       @default(false)
+  active        Boolean       @default(true)
+  order         Int           @default(0)
+  channelNumber Int?          @unique
+  isLive        Boolean       @default(false)
+  popularity    Float?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  favorites     Favorite[]
+  seasons       Season[]
+  viewHistory   ViewHistory[]
+  credits       Credit[]
+  contentGenres ContentGenre[]
+  images        ContentImage[]
+  externalIds   ExternalId[]
+
+  @@index([type])
+  @@index([featured])
+  @@index([active])
+  @@index([channelNumber])
+  @@index([isLive])
+  @@index([imdbId])
+  @@index([tvmazeId])
+}
+
+model Season {
+  id           Int       @id @default(autoincrement())
+  contentId    Int
+  seasonNumber Int
+  name         String?
+  overview     String?
+  posterPath   String?
+  airDate      String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  episodes     Episode[]
+  content      Content   @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@index([contentId])
+}
+
+model Episode {
+  id            Int           @id @default(autoincrement())
+  seasonId      Int
+  contentId     Int
+  seasonNumber  Int
+  episodeNumber Int
+  name          String?
+  overview      String?
+  stillPath     String?
+  airDate       String?
+  runtime       Int?
+  streamUrl     String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  season        Season        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+  viewHistory   ViewHistory[]
+
+  @@unique([contentId, seasonNumber, episodeNumber])
+  @@index([seasonId])
+}
+
+model ViewHistory {
+  id            String   @id @default(uuid())
+  userId        Int
+  contentId     Int
+  episodeId     Int?
+  seasonNumber  Int?
+  episodeNumber Int?
+  watchedTime   Int      @default(0)
+  duration      Int      @default(0)
+  completed     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  episode       Episode? @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  content       Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentId, episodeId])
+  @@index([userId])
+  @@index([contentId])
+  @@index([episodeId])
+}
+
+model Favorite {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  contentId Int
+  createdAt DateTime @default(now())
+  content   Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, contentId])
+  @@index([userId])
+  @@index([contentId])
+}
+
+model Payment {
+  id            Int      @id @default(autoincrement())
+  userId        Int
+  amount        Float
+  currency      String   @default("BRL")
+  status        String   @default("pending")
+  method        String?
+  transactionId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model SiteConfig {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String
+  type        String   @default("text")
+  category    String   @default("general")
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Banner {
+  id        Int       @id @default(autoincrement())
+  title     String
+  subtitle  String?
+  imageUrl  String
+  linkUrl   String?
+  position  String    @default("home")
+  order     Int       @default(0)
+  active    Boolean   @default(true)
+  startDate DateTime?
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model AccessCode {
+  id        Int       @id @default(autoincrement())
+  code      String    @unique
+  userId    Int?
+  email     String?
+  expiresAt DateTime
+  usedAt    DateTime?
+  status    String    @default("active")
+  createdBy Int
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([code])
+  @@index([status])
+  @@index([expiresAt])
+}
+
+model Subscriber {
+  id         Int       @id @default(autoincrement())
+  name       String
+  email      String
+  whatsapp   String
+  plan       String
+  planPrice  Float
+  planMonths Int
+  status     String    @default("pending")
+  notes      String?
+  approvedBy Int?
+  approvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([status])
+  @@index([plan])
+  @@index([createdAt])
+}
+
+// ============================================
+// NOVAS TABELAS PARA DADOS COMPLETOS DE FILMES/SÉRIES
+// ============================================
+
+model Person {
+  id          Int      @id @default(autoincrement())
+  name        String
+  imdbId      String?  @unique
+  tvmazeId    Int?     @unique
+  biography   String?
+  birthday    String?
+  deathday    String?
+  placeOfBirth String?
+  profilePath String?
+  gender      Int?     // 0=unknown, 1=female, 2=male
+  popularity  Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  credits     Credit[]
+
+  @@index([name])
+}
+
+model Credit {
+  id          Int      @id @default(autoincrement())
+  contentId   Int
+  personId    Int
+  department  String   // Acting, Directing, Writing, Production, Creator
+  job         String?  // Director, Writer, Producer, Creator, etc.
+  character   String?  // Nome do personagem (para atores)
+  creditOrder Int?     // Ordem nos créditos
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  content     Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  person      Person   @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([contentId, personId, department, job, character])
+  @@index([contentId])
+  @@index([personId])
+  @@index([department])
+}
+
+model Genre {
+  id        Int            @id @default(autoincrement())
+  name      String         @unique
+  slug      String         @unique
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  contents  ContentGenre[]
+}
+
+model ContentGenre {
+  id        Int      @id @default(autoincrement())
+  contentId Int
+  genreId   Int
+  createdAt DateTime @default(now())
+  content   Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  genre     Genre    @relation(fields: [genreId], references: [id], onDelete: Cascade)
+
+  @@unique([contentId, genreId])
+  @@index([contentId])
+  @@index([genreId])
+}
+
+model ContentImage {
+  id          Int      @id @default(autoincrement())
+  contentId   Int
+  type        String   // poster, backdrop, logo
+  filePath    String   // Caminho local da imagem
+  width       Int?
+  height      Int?
+  aspectRatio Float?
+  source      String?  // omdb, tvmaze, fanart, etc.
+  isPrimary   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  content     Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@index([contentId])
+  @@index([type])
+}
+
+model ExternalId {
+  id        Int      @id @default(autoincrement())
+  contentId Int
+  source    String   // imdb, tvmaze, omdb, trakt
+  externalId String
+  createdAt DateTime @default(now())
+  content   Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+
+  @@unique([source, externalId])
+  @@index([contentId])
+}
