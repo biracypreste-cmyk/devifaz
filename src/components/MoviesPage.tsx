@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Movie } from '../utils/tmdb';
 import { CategoryBanner } from './CategoryBanner';
 import { MovieCard } from './MovieCard';
-import { loadAllContent } from '../utils/primeVicioLoader';
+import { loadAllContent, groupContentByGenre, GENRE_MAP } from '../utils/primeVicioLoader';
 
 // Icons inline to avoid lucide-react dependency
 const ChevronDownIcon = ({ className = "", size = 24 }: { className?: string; size?: number }) => (
@@ -57,6 +57,7 @@ export function MoviesPage({
   const [selectedGenre, setSelectedGenre] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [movies, setMovies] = useState<Movie[]>([]);
+  const [moviesByGenre, setMoviesByGenre] = useState<Record<string, Movie[]>>({});
   const [loading, setLoading] = useState(true);
   const [showGenreDropdown, setShowGenreDropdown] = useState(false);
   const [featuredMovie, setFeaturedMovie] = useState<Movie | null>(null);
@@ -128,7 +129,33 @@ export function MoviesPage({
           isLocal: movie.isLocal
         }));
         
+        // Agrupar filmes por gênero
+        const grouped = groupContentByGenre(filteredMovies as any);
+        const groupedMovies: Record<string, Movie[]> = {};
+        for (const [genre, items] of Object.entries(grouped)) {
+          groupedMovies[genre] = items.map((movie: any) => ({
+            id: movie.id,
+            title: movie.title || movie.name,
+            name: movie.name || movie.title,
+            overview: movie.overview || 'Conteúdo disponível para reprodução.',
+            poster_path: movie.poster_path,
+            backdrop_path: movie.backdrop_path,
+            vote_average: movie.vote_average || 7.5,
+            vote_count: movie.vote_count || 0,
+            popularity: movie.popularity || 0,
+            release_date: movie.release_date,
+            genre_ids: movie.genre_ids || [],
+            adult: false,
+            original_language: 'pt',
+            original_title: movie.title || movie.name,
+            media_type: 'movie',
+            streamUrl: movie.streamUrl,
+            isLocal: movie.isLocal
+          }));
+        }
+        
         setMovies(processedMovies);
+        setMoviesByGenre(groupedMovies);
         setFeaturedMovie(processedMovies[0] || null);
         setLoading(false);
         
@@ -252,35 +279,44 @@ export function MoviesPage({
           </div>
         )}
 
-        {/* Grid View - COM EFEITOS HOVER DA PÁGINA INICIAL */}
+        {/* Grid View - Agrupado por Gênero */}
         {!loading && viewMode === 'grid' && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px]">
-            {movies.map((movie) => (
-              <div
-                key={movie.id}
-                onMouseEnter={() => setHoveredId(movie.id)}
-                onMouseLeave={() => setHoveredId(null)}
-                className="touch-manipulation relative"
-                style={{ 
-                  transform: hoveredId === movie.id ? 'scale(1.05)' : 'scale(1)',
-                  opacity: hoveredId !== null && hoveredId !== movie.id ? 0.5 : 1,
-                  transition: 'transform 0.3s, opacity 0.3s',
-                  zIndex: hoveredId === movie.id ? 100 : 1
-                }}
-              >
-                <MovieCard
-                  movie={movie}
-                  onClick={() => onMovieClick && onMovieClick(movie)}
-                  onPlay={onPlay ? () => onPlay(movie) : undefined}
-                  onAddToList={() => onAddToList?.(movie)}
-                  onLike={() => onLike?.(movie)}
-                  onWatchLater={() => onWatchLater?.(movie)}
-                  isInList={myList.includes(movie.id)}
-                  isLiked={likedList.includes(movie.id)}
-                  isInWatchLater={watchLaterList.includes(movie.id)}
-                />
-              </div>
-            ))}
+          <div className="space-y-12">
+            {Object.entries(moviesByGenre)
+              .sort((a, b) => b[1].length - a[1].length)
+              .map(([genre, genreMovies]) => (
+                <div key={genre}>
+                  <h2 className="text-2xl font-bold text-white mb-6">{genre}</h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px]">
+                    {genreMovies.slice(0, 14).map((movie) => (
+                      <div
+                        key={movie.id}
+                        onMouseEnter={() => setHoveredId(movie.id)}
+                        onMouseLeave={() => setHoveredId(null)}
+                        className="touch-manipulation relative"
+                        style={{ 
+                          transform: hoveredId === movie.id ? 'scale(1.05)' : 'scale(1)',
+                          opacity: hoveredId !== null && hoveredId !== movie.id ? 0.5 : 1,
+                          transition: 'transform 0.3s, opacity 0.3s',
+                          zIndex: hoveredId === movie.id ? 100 : 1
+                        }}
+                      >
+                        <MovieCard
+                          movie={movie}
+                          onClick={() => onMovieClick && onMovieClick(movie)}
+                          onPlay={onPlay ? () => onPlay(movie) : undefined}
+                          onAddToList={() => onAddToList?.(movie)}
+                          onLike={() => onLike?.(movie)}
+                          onWatchLater={() => onWatchLater?.(movie)}
+                          isInList={myList.includes(movie.id)}
+                          isLiked={likedList.includes(movie.id)}
+                          isInWatchLater={watchLaterList.includes(movie.id)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
           </div>
         )}
 
