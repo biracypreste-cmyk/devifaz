@@ -706,11 +706,7 @@ function App() {
         setError(null);
 
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('🎬 REDFLIX - FONTE ÚNICA: filmes.txt REMOTO + TMDB');
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('📡 Fonte: https://chemorena.com/filmes/filmes.txt');
-        console.log('🎨 Enriquecimento: TMDB API (imagens)');
-        console.log('📹 URLs de vídeo: MP4 direto do .txt');
+        console.log('🎬 REDFLIX - CARREGANDO CONTEÚDO');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
         setLoadingProgress(20);
@@ -2313,7 +2309,7 @@ function App() {
                 <p className="text-white/50 text-center text-sm mt-2 font-['Inter:Regular',sans-serif]">
                   {activeCategory === 'Filmes' ? 'Não há filmes disponíveis' :
                     activeCategory === 'Séries' ? 'Não há séries disponíveis' :
-                      'Verifique se o arquivo filmes.txt está disponível no repositório'}
+                      'Verifique sua conexão com a internet'}
                 </p>
               </div>
             )}
