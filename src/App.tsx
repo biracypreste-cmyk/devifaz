@@ -80,7 +80,7 @@ import { StreamingMarquee } from './components/StreamingMarquee';
 import { FeaturedBanners } from './components/FeaturedBanners';
 import { StreamingLogos } from './components/StreamingLogos';
 import { ImagePreloadMonitor } from './components/ImagePreloadMonitor';
-import { loadAllContentFromDatabase, convertToMovieFormat } from './utils/databaseContentLoader'; // ✅ ÚNICA FONTE: BANCO DE DADOS
+import { loadAllContent, groupContentByGenre, Content } from './utils/primeVicioLoader'; // ✅ MESMA FONTE: SeriesPage e MoviesPage
 import { initializeImageCache } from './utils/imageCache';
 import { preloadCriticalResources } from './utils/resourcePreloader';
 import { setupTVMode } from './utils/tvNavigation';
@@ -711,13 +711,13 @@ function App() {
 
         setLoadingProgress(20);
 
-        // ✅ FONTE ÚNICA: BANCO DE DADOS
+        // ✅ MESMA FONTE: SeriesPage e MoviesPage (loadAllContent)
         console.log('🎬 ═══════════════════════════════════════════════════');
         console.log('🎬 CARREGANDO CONTEÚDO');
-        console.log('🎬 Fonte: BANCO DE DADOS (API /api/content)');
+        console.log('🎬 Fonte: loadAllContent() (mesma de SeriesPage/MoviesPage)');
         console.log('🎬 ═══════════════════════════════════════════════════');
 
-        const contentData = await loadAllContentFromDatabase();
+        const contentData = await loadAllContent();
 
         setLoadingProgress(60);
 
@@ -739,23 +739,39 @@ function App() {
 
         setLoadingProgress(80);
 
-                // Converter para formato do App usando a funcao convertToMovieFormat
-                const convertedMovies = allMoviesAndSeries.map(item => convertToMovieFormat(item));
+        // Converter Content para formato Movie do App
+        const convertContentToMovie = (item: Content): any => ({
+          id: item.id,
+          title: item.title,
+          name: item.name,
+          overview: item.overview || '',
+          poster_path: item.poster_path || '',
+          backdrop_path: item.backdrop_path || '',
+          vote_average: item.vote_average || 0,
+          media_type: item.type === 'tv' ? 'tv' : 'movie',
+          release_date: item.release_date,
+          first_air_date: item.first_air_date,
+          genre_ids: item.genre_ids || [],
+          streamUrl: item.streamUrl,
+          type: item.type
+        });
 
-                setLoadingProgress(90);
+        const convertedMovies = allMoviesAndSeries.map(convertContentToMovie);
 
-                // Organizar conteudo
-                setAllContent(convertedMovies);
-                setTopShows(convertedMovies.slice(0, 20));
-                setContinueWatching(convertedMovies.slice(0, 5));
+        setLoadingProgress(90);
 
-                // TOP 10 - conteudo com melhor avaliacao
-                const top10Content = [...convertedMovies]
-                  .filter((m: any) => m.vote_average && m.vote_average > 0)
-                  .sort((a: any, b: any) => (b.vote_average || 0) - (a.vote_average || 0))
-                  .slice(0, 10);
+        // Organizar conteudo
+        setAllContent(convertedMovies);
+        setTopShows(convertedMovies.slice(0, 20));
+        setContinueWatching(convertedMovies.slice(0, 5));
 
-                setTop10BrasilSeries(top10Content.length > 0 ? top10Content : convertedMovies.slice(0, 10));
+        // TOP 10 - conteudo com melhor avaliacao
+        const top10Content = [...convertedMovies]
+          .filter((m: any) => m.vote_average && m.vote_average > 0)
+          .sort((a: any, b: any) => (b.vote_average || 0) - (a.vote_average || 0))
+          .slice(0, 10);
+
+        setTop10BrasilSeries(top10Content.length > 0 ? top10Content : convertedMovies.slice(0, 10));
         setTop10Trending(convertedMovies.slice(0, 10));
 
         setLoadingProgress(100);
@@ -774,8 +790,7 @@ function App() {
           console.log('  Título:', convertedMovies[0].title || convertedMovies[0].name);
           console.log('  Tipo:', convertedMovies[0].type);
           console.log('  Poster TMDB:', convertedMovies[0].poster_path ? '✅' : '❌');
-          console.log('  Logo TMDB:', convertedMovies[0].logo ? '✅' : '❌');
-          console.log('  Embed URL:', convertedMovies[0].embedUrl || 'N/A');
+          console.log('  StreamUrl:', convertedMovies[0].streamUrl || 'N/A');
         }
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
@@ -2049,7 +2064,7 @@ function App() {
                   )}
                 </div>
 
-                {/* Se estiver em "Início", mostrar as categorias principais com limite */}
+                {/* Se estiver em "Início", mostrar conteúdo agrupado por gênero */}
                 {activeCategory === 'Início' && sortedGenres.length > 0 ? (
                   <div className="space-y-12">
                     {/* Helper para converter tipos se necessário */}
@@ -2071,155 +2086,7 @@ function App() {
 
                       return (
                         <>
-                          {/* Destaques do Dia - GRID */}
-                          <div>
-                            <h2 className="text-2xl font-bold text-white mb-6 pl-4 md:pl-0">Destaques do Dia</h2>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px] px-4 md:px-0">
-                              {allContent.slice(0, 12).map(item => (
-                                <div
-                                  key={item.id}
-                                  className="relative w-full"
-                                  onMouseEnter={() => setHoveredId(item.id)}
-                                  onMouseLeave={() => setHoveredId(null)}
-                                  style={{
-                                    zIndex: hoveredId === item.id ? 999 : 1,
-                                    position: 'relative'
-                                  }}
-                                >
-                                  <div style={{
-                                    transform: hoveredId === item.id ? 'scale(1.05)' : 'scale(1)',
-                                    transition: 'transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                                    position: 'relative',
-                                    zIndex: hoveredId === item.id ? 999 : 1
-                                  }}>
-                                    <MovieCard
-                                      movie={toMovie(item)}
-                                      onClick={() => handleMovieClick(toMovie(item))}
-                                      onAddToList={() => handleAddToList(toMovie(item))}
-                                      onLike={() => handleLike(toMovie(item))}
-                                      onWatchLater={() => handleWatchLater(toMovie(item))}
-                                      isInList={myList.includes(item.id)}
-                                      isLiked={likedList.includes(item.id)}
-                                      isInWatchLater={watchLaterList.includes(item.id)}
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Em Alta Agora - GRID */}
-                          <div>
-                            <h2 className="text-2xl font-bold text-white mb-6 pl-4 md:pl-0">Em Alta Agora</h2>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px] px-4 md:px-0">
-                              {allContent.slice(18, 30).map(item => (
-                                <div
-                                  key={item.id}
-                                  className="relative w-full"
-                                  onMouseEnter={() => setHoveredId(item.id)}
-                                  onMouseLeave={() => setHoveredId(null)}
-                                  style={{
-                                    zIndex: hoveredId === item.id ? 999 : 1,
-                                    position: 'relative'
-                                  }}
-                                >
-                                  <div style={{
-                                    transform: hoveredId === item.id ? 'scale(1.05)' : 'scale(1)',
-                                    transition: 'transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                                    position: 'relative',
-                                    zIndex: hoveredId === item.id ? 999 : 1
-                                  }}>
-                                    <MovieCard
-                                      movie={toMovie(item)}
-                                      onClick={() => handleMovieClick(toMovie(item))}
-                                      onAddToList={() => handleAddToList(toMovie(item))}
-                                      onLike={() => handleLike(toMovie(item))}
-                                      onWatchLater={() => handleWatchLater(toMovie(item))}
-                                      isInList={myList.includes(item.id)}
-                                      isLiked={likedList.includes(item.id)}
-                                      isInWatchLater={watchLaterList.includes(item.id)}
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Adicionados Recentemente - GRID */}
-                          <div>
-                            <h2 className="text-2xl font-bold text-white mb-6 pl-4 md:pl-0">Adicionados Recentemente</h2>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px] px-4 md:px-0">
-                              {allContent.slice(36, 48).map(item => (
-                                <div
-                                  key={item.id}
-                                  className="relative w-full"
-                                  onMouseEnter={() => setHoveredId(item.id)}
-                                  onMouseLeave={() => setHoveredId(null)}
-                                  style={{
-                                    zIndex: hoveredId === item.id ? 999 : 1,
-                                    position: 'relative'
-                                  }}
-                                >
-                                  <div style={{
-                                    transform: hoveredId === item.id ? 'scale(1.05)' : 'scale(1)',
-                                    transition: 'transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                                    position: 'relative',
-                                    zIndex: hoveredId === item.id ? 999 : 1
-                                  }}>
-                                    <MovieCard
-                                      movie={toMovie(item)}
-                                      onClick={() => handleMovieClick(toMovie(item))}
-                                      onAddToList={() => handleAddToList(toMovie(item))}
-                                      onLike={() => handleLike(toMovie(item))}
-                                      onWatchLater={() => handleWatchLater(toMovie(item))}
-                                      isInList={myList.includes(item.id)}
-                                      isLiked={likedList.includes(item.id)}
-                                      isInWatchLater={watchLaterList.includes(item.id)}
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Mais Assistidos - GRID */}
-                          <div>
-                            <h2 className="text-2xl font-bold text-white mb-6 pl-4 md:pl-0">Mais Assistidos</h2>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px] px-4 md:px-0">
-                              {allContent.slice(54, 66).map(item => (
-                                <div
-                                  key={item.id}
-                                  className="relative w-full"
-                                  onMouseEnter={() => setHoveredId(item.id)}
-                                  onMouseLeave={() => setHoveredId(null)}
-                                  style={{
-                                    zIndex: hoveredId === item.id ? 999 : 1,
-                                    position: 'relative'
-                                  }}
-                                >
-                                  <div style={{
-                                    transform: hoveredId === item.id ? 'scale(1.05)' : 'scale(1)',
-                                    transition: 'transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94)',
-                                    position: 'relative',
-                                    zIndex: hoveredId === item.id ? 999 : 1
-                                  }}>
-                                    <MovieCard
-                                      movie={toMovie(item)}
-                                      onClick={() => handleMovieClick(toMovie(item))}
-                                      onAddToList={() => handleAddToList(toMovie(item))}
-                                      onLike={() => handleLike(toMovie(item))}
-                                      onWatchLater={() => handleWatchLater(toMovie(item))}
-                                      isInList={myList.includes(item.id)}
-                                      isLiked={likedList.includes(item.id)}
-                                      isInWatchLater={watchLaterList.includes(item.id)}
-                                    />
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Fileiras por gênero - GRID */}
+                          {/* Seções por Gênero - Filmes e Séries misturados */}
                           {sortedGenres.map(([genre, content]) => (
                             <div key={genre}>
                               <h2 className="text-2xl font-bold text-white mb-6 pl-4 md:pl-0">{genre}</h2>

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Movie } from '../utils/tmdb';
 import { CategoryBanner } from './CategoryBanner';
 import { MovieCard } from './MovieCard';
-import { loadAllContent } from '../utils/primeVicioLoader';
+import { loadAllContent, groupContentByGenre } from '../utils/primeVicioLoader';
 
 // Icons inline to avoid lucide-react dependency
 const ChevronDownIcon = ({ className = "", size = 24 }: { className?: string; size?: number }) => (
@@ -57,6 +57,7 @@ export function SeriesPage({
   const [selectedGenre, setSelectedGenre] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [series, setSeries] = useState<Movie[]>([]);
+  const [seriesByGenre, setSeriesByGenre] = useState<Record<string, Movie[]>>({});
   const [loading, setLoading] = useState(true);
   const [showGenreDropdown, setShowGenreDropdown] = useState(false);
   const [featuredSeries, setFeaturedSeries] = useState<Movie | null>(null);
@@ -124,7 +125,32 @@ export function SeriesPage({
           isLocal: serie.isLocal
         }));
         
+        // Agrupar séries por gênero
+        const grouped = groupContentByGenre(filteredSeries as any);
+        const groupedSeries: Record<string, Movie[]> = {};
+        for (const [genre, items] of Object.entries(grouped)) {
+          groupedSeries[genre] = items.map((serie: any) => ({
+            id: serie.id,
+            name: serie.name || serie.title,
+            title: serie.title || serie.name,
+            overview: serie.overview || 'Conteúdo disponível para reprodução.',
+            poster_path: serie.poster_path,
+            backdrop_path: serie.backdrop_path,
+            vote_average: serie.vote_average || 7.5,
+            vote_count: serie.vote_count || 0,
+            popularity: serie.popularity || 0,
+            first_air_date: serie.first_air_date || serie.release_date,
+            genre_ids: serie.genre_ids || [],
+            original_language: 'pt',
+            original_name: serie.name || serie.title,
+            media_type: 'tv',
+            streamUrl: serie.streamUrl,
+            isLocal: serie.isLocal
+          }));
+        }
+        
         setSeries(processedSeries);
+        setSeriesByGenre(groupedSeries);
         setFeaturedSeries(processedSeries[0] || null);
         setLoading(false);
         
@@ -248,35 +274,44 @@ export function SeriesPage({
           </div>
         )}
 
-        {/* Grid View - COM EFEITOS HOVER DA PÁGINA INICIAL */}
+        {/* Grid View - Agrupado por Gênero */}
         {!loading && viewMode === 'grid' && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px]">
-            {series.map((show) => (
-              <div
-                key={show.id}
-                onMouseEnter={() => setHoveredId(show.id)}
-                onMouseLeave={() => setHoveredId(null)}
-                className="touch-manipulation relative"
-                style={{ 
-                  transform: hoveredId === show.id ? 'scale(1.05)' : 'scale(1)',
-                  opacity: hoveredId !== null && hoveredId !== show.id ? 0.5 : 1,
-                  transition: 'transform 0.3s, opacity 0.3s',
-                  zIndex: hoveredId === show.id ? 100 : 1
-                }}
-              >
-                <MovieCard
-                  movie={show}
-                  onClick={() => onMovieClick && onMovieClick(show)}
-                  onPlay={onPlay ? () => onPlay(show) : undefined}
-                  onAddToList={() => onAddToList?.(show)}
-                  onLike={() => onLike?.(show)}
-                  onWatchLater={() => onWatchLater?.(show)}
-                  isInList={myList.includes(show.id)}
-                  isLiked={likedList.includes(show.id)}
-                  isInWatchLater={watchLaterList.includes(show.id)}
-                />
-              </div>
-            ))}
+          <div className="space-y-12">
+            {Object.entries(seriesByGenre)
+              .sort((a, b) => b[1].length - a[1].length)
+              .map(([genre, genreSeries]) => (
+                <div key={genre}>
+                  <h2 className="text-2xl font-bold text-white mb-6">{genre}</h2>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px]">
+                    {genreSeries.slice(0, 14).map((show) => (
+                      <div
+                        key={show.id}
+                        onMouseEnter={() => setHoveredId(show.id)}
+                        onMouseLeave={() => setHoveredId(null)}
+                        className="touch-manipulation relative"
+                        style={{ 
+                          transform: hoveredId === show.id ? 'scale(1.05)' : 'scale(1)',
+                          opacity: hoveredId !== null && hoveredId !== show.id ? 0.5 : 1,
+                          transition: 'transform 0.3s, opacity 0.3s',
+                          zIndex: hoveredId === show.id ? 100 : 1
+                        }}
+                      >
+                        <MovieCard
+                          movie={show}
+                          onClick={() => onMovieClick && onMovieClick(show)}
+                          onPlay={onPlay ? () => onPlay(show) : undefined}
+                          onAddToList={() => onAddToList?.(show)}
+                          onLike={() => onLike?.(show)}
+                          onWatchLater={() => onWatchLater?.(show)}
+                          isInList={myList.includes(show.id)}
+                          isLiked={likedList.includes(show.id)}
+                          isInWatchLater={watchLaterList.includes(show.id)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
           </div>
         )}
 
