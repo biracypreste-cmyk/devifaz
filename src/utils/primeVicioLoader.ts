@@ -215,7 +215,7 @@ export interface Content {
   release_date?: string;
   first_air_date?: string;
   genre_ids?: number[];
-  genres?: Array<{ id: number; name: string }>;
+  genres?: Array<string | { id: number; name: string }>;
   type: 'movie' | 'tv';
   year?: number;
   media_type?: string;
@@ -275,16 +275,50 @@ export const GENRE_MAP: Record<number, string> = {
  * Agrupa conteúdo (filmes + séries) por gênero
  * Retorna um objeto onde as chaves são os nomes dos gêneros em português
  * e os valores são arrays de Content
+ * 
+ * Suporta dois formatos:
+ * 1. genre_ids: number[] - IDs numéricos do TMDB (ex: [28, 12, 16])
+ * 2. genres: string[] | {id: number, name: string}[] - Nomes ou objetos de gênero
  */
 export function groupContentByGenre(allContent: Content[]): Record<string, Content[]> {
   const grouped: Record<string, Content[]> = {};
 
   for (const item of allContent) {
-    // Pegar genre_ids do item
-    const genreIds = item.genre_ids || [];
+    // Coletar nomes de gêneros de todas as fontes possíveis
+    const genreNames: string[] = [];
+    
+    // 1. Tentar genre_ids (números) -> converter para nomes
+    if (item.genre_ids && item.genre_ids.length > 0) {
+      for (const genreId of item.genre_ids) {
+        const name = GENRE_MAP[genreId];
+        if (name && !genreNames.includes(name)) {
+          genreNames.push(name);
+        }
+      }
+    }
+    
+    // 2. Tentar genres (pode ser string[] ou {id, name}[])
+    if (item.genres && item.genres.length > 0) {
+      for (const genre of item.genres) {
+        let name: string | undefined;
+        if (typeof genre === 'string') {
+          // genres é array de strings (ex: ["Terror", "Fantasia"])
+          name = genre;
+        } else if (typeof genre === 'object' && genre.name) {
+          // genres é array de objetos (ex: [{id: 27, name: "Terror"}])
+          name = genre.name;
+        } else if (typeof genre === 'object' && genre.id) {
+          // genres tem apenas id, converter para nome
+          name = GENRE_MAP[genre.id];
+        }
+        if (name && !genreNames.includes(name)) {
+          genreNames.push(name);
+        }
+      }
+    }
     
     // Se não tiver gêneros, colocar em "Outros"
-    if (genreIds.length === 0) {
+    if (genreNames.length === 0) {
       if (!grouped['Outros']) {
         grouped['Outros'] = [];
       }
@@ -293,8 +327,7 @@ export function groupContentByGenre(allContent: Content[]): Record<string, Conte
     }
 
     // Adicionar o item a cada gênero que ele pertence
-    for (const genreId of genreIds) {
-      const genreName = GENRE_MAP[genreId] || 'Outros';
+    for (const genreName of genreNames) {
       if (!grouped[genreName]) {
         grouped[genreName] = [];
       }
@@ -547,6 +580,9 @@ async function loadLocalContent(): Promise<Content[]> {
       overview: item.overview,
       vote_average: item.vote_average,
       release_date: item.release_date,
+      first_air_date: item.first_air_date,
+      genre_ids: item.genre_ids,
+      genres: item.genres,
       type: item.type as 'movie' | 'tv',
       year: item.year,
       media_type: item.media_type,
@@ -584,6 +620,9 @@ async function loadTMDBContent(): Promise<Content[]> {
       overview: item.overview,
       vote_average: item.vote_average,
       release_date: item.release_date,
+      first_air_date: item.first_air_date,
+      genre_ids: item.genre_ids,
+      genres: item.genres,
       type: item.type as 'movie' | 'tv',
       year: item.year,
       media_type: item.media_type,
@@ -621,6 +660,9 @@ async function loadRealContent(): Promise<Content[]> {
       overview: item.overview,
       vote_average: item.vote_average,
       release_date: item.release_date,
+      first_air_date: item.first_air_date,
+      genre_ids: item.genre_ids,
+      genres: item.genres,
       type: item.type as 'movie' | 'tv',
       year: item.year,
       media_type: item.media_type,
