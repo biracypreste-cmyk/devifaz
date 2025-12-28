@@ -600,7 +600,8 @@ async function loadTMDBContent(): Promise<Content[]> {
 }
 
 /**
- * Carregar conteúdo real do arquivo JSON (fallback)
+ * Carregar conteúdo real do arquivo JSON (FONTE ÚNICA DE DADOS)
+ * O JSON já está enriquecido com gêneros do TMDB
  */
 async function loadRealContent(): Promise<Content[]> {
   try {
@@ -621,6 +622,9 @@ async function loadRealContent(): Promise<Content[]> {
       overview: item.overview,
       vote_average: item.vote_average,
       release_date: item.release_date,
+      first_air_date: item.first_air_date,
+      genre_ids: item.genre_ids || [],
+      genres: item.genres || [],
       type: item.type as 'movie' | 'tv',
       year: item.year,
       media_type: item.media_type,
@@ -636,9 +640,9 @@ async function loadRealContent(): Promise<Content[]> {
 /**
  * FUNÇÃO PRINCIPAL - Carregar TUDO
  * 
- * ATUALIZADO: Carregamento PROGRESSIVO
- * 1. Primeiro carrega conteúdo LOCAL (imagens da pasta) - RÁPIDO
- * 2. Depois carrega conteúdo TMDB - PROGRESSIVO
+ * REGRA: Usa APENAS real_content.json como fonte de dados
+ * - Imagens locais de /images/posters/
+ * - Gêneros já enriquecidos no JSON (via script offline)
  */
 export async function loadAllContent(): Promise<{
   movies: Content[];
@@ -651,28 +655,18 @@ export async function loadAllContent(): Promise<{
   }
 
   console.log('🎬 ═══════════════════════════════════════════════════');
-  console.log('🎬 CARREGAMENTO PROGRESSIVO');
-  console.log('🎬 1. LOCAL (imagens da pasta) - PRIMEIRO');
-  console.log('🎬 2. TMDB (imagens da API) - DEPOIS');
+  console.log('🎬 CARREGANDO CONTEÚDO REAL');
+  console.log('🎬 Fonte: real_content.json (imagens locais + gêneros TMDB)');
   console.log('🎬 ═══════════════════════════════════════════════════');
 
   try {
-    // PASSO 1: Carregar conteúdo LOCAL primeiro (RÁPIDO)
-    console.log('\n📂 PASSO 1: Carregando conteúdo LOCAL...');
-    const localContent = await loadLocalContent();
+    // Carregar conteúdo REAL (única fonte de dados)
+    console.log('\n📂 Carregando real_content.json...');
+    const realContent = await loadRealContent();
     
-    // PASSO 2: Carregar conteúdo TMDB (pode demorar mais)
-    console.log('\n🌐 PASSO 2: Carregando conteúdo TMDB...');
-    const tmdbContent = await loadTMDBContent();
+    console.log(`   Carregado: ${realContent.length} itens`);
 
-    // Combinar: LOCAL primeiro, depois TMDB
-    const allContent = [...localContent, ...tmdbContent];
-    
-    console.log(`\n📊 Conteúdo Total: ${allContent.length} itens`);
-    console.log(`   LOCAL: ${localContent.length} itens (carregados primeiro)`);
-    console.log(`   TMDB: ${tmdbContent.length} itens (carregados depois)`);
-
-    if (allContent.length === 0) {
+    if (realContent.length === 0) {
       // Fallback para conteúdo demo se nada carregar
       console.warn('⚠️ Usando conteúdo DEMO como fallback');
       cachedMovies = DEMO_MOVIES;
@@ -682,14 +676,18 @@ export async function loadAllContent(): Promise<{
     }
 
     // Separar filmes e séries
-    const allMovies = allContent.filter(item => item.type === 'movie');
-    const allSeries = allContent.filter(item => item.type === 'tv');
+    const allMovies = realContent.filter(item => item.type === 'movie');
+    const allSeries = realContent.filter(item => item.type === 'tv');
+
+    // Contar itens com gênero
+    const withGenre = realContent.filter(item => item.genre_ids && item.genre_ids.length > 0).length;
 
     console.log('✅ ═══════════════════════════════════════════════════');
-    console.log(`✅ CARREGAMENTO PROGRESSIVO COMPLETO!`);
-    console.log(`   Filmes: ${allMovies.length} (${localContent.filter(i => i.type === 'movie').length} locais)`);
-    console.log(`   Séries: ${allSeries.length} (${localContent.filter(i => i.type === 'tv').length} locais)`);
-    console.log(`   Conteúdo LOCAL aparece PRIMEIRO na lista`);
+    console.log(`✅ CARREGAMENTO COMPLETO!`);
+    console.log(`   Total: ${realContent.length} itens`);
+    console.log(`   Filmes: ${allMovies.length}`);
+    console.log(`   Séries: ${allSeries.length}`);
+    console.log(`   Com gênero: ${withGenre} (${((withGenre / realContent.length) * 100).toFixed(1)}%)`);
     console.log('✅ ═══════════════════════════════════════════════════');
 
     // Cache
@@ -709,7 +707,6 @@ export async function loadAllContent(): Promise<{
 
     // Último recurso: usar conteúdo demo
     console.warn('⚠️ Usando conteúdo DEMO como fallback');
-    console.log('💡 Para corrigir, siga o guia: /COMO_GERAR_API_KEY_TMDB.md');
 
     return { movies: DEMO_MOVIES, series: DEMO_SERIES };
   }
