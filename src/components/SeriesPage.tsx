@@ -283,7 +283,7 @@ export function SeriesPage({
                 <div key={genre}>
                   <h2 className="text-2xl font-bold text-white mb-6">{genre}</h2>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-[24px]">
-                    {genreSeries.map((show) => (
+                    {genreSeries.slice(0, 14).map((show) => (
                       <div
                         key={show.id}
                         onMouseEnter={() => setHoveredId(show.id)}
